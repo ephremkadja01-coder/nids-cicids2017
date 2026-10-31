@@ -1,0 +1,8 @@
+joblib
+jupyter
+numpy
+pandas
+pyarrow
+scikit-learn
+shap
+xgboost
