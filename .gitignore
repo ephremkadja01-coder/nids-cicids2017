@@ -1,2 +1,11 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Data & Models (Generated)
+ml/data/processed/
+ml/models/
+*.joblib
+*.parquet
 ml/data/raw/
-ml/data/processed/parquet/
