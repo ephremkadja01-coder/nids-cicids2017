@@ -1,7 +1,7 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react"; // <-- Ajout de useEffect
 import { BentoGridShowcase } from "@/components/ui/bento-product-features";
 import { AILoader } from "@/components/ui/ai-loader";
-import { Shield, Activity, TerminalSquare, Mic, Send, Gauge, Zap, ShieldAlert, Square, Volume2 } from "lucide-react";
+import { Shield, Activity, TerminalSquare, Mic, Send, Gauge, Zap, ShieldAlert, Square, Volume2, Wifi } from "lucide-react"; // <-- Ajout de Wifi
 import ReactMarkdown from 'react-markdown';
 
 function App() {
@@ -9,13 +9,50 @@ function App() {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<any>(null);
   
+  // --- NOUVEAUX ÉTATS POUR LE TEMPS RÉEL (WebSocket) ---
+  const [liveFeed, setLiveFeed] = useState<any[]>([]);
+  const [liveAlerts, setLiveAlerts] = useState(0);
+
   // Refs pour l'enregistrement audio
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  // --- CONNEXION WEBSOCKET (Robuste) ---
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let isUnmounted = false;
+
+    const connectWebSocket = () => {
+      ws = new WebSocket("ws://127.0.0.1:8000/api/v1/ws/alerts");
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        setLiveFeed(prev => [{ ...data, id: Date.now() }, ...prev].slice(0, 4));
+        if (data.is_attack) {
+          setLiveAlerts(prev => prev + 1);
+        }
+      };
+
+      ws.onclose = () => {
+        if (!isUnmounted) {
+          console.log("WebSocket déconnecté. Reconnexion dans 3s...");
+          reconnectTimeout = setTimeout(connectWebSocket, 3000);
+        }
+      };
+    };
+
+    connectWebSocket();
+
+    return () => {
+      isUnmounted = true;
+      if (ws) ws.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
+  }, []);
+
   const startListening = async () => {
     try {
-      // Demander l'accès au micro
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
@@ -27,11 +64,8 @@ function App() {
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        // Quand on arrête, on crée le fichier audio et on l'envoie
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         await transcribeAudio(audioBlob);
-        
-        // Couper le micro
         stream.getTracks().forEach(track => track.stop());
       };
 
@@ -46,7 +80,7 @@ function App() {
   const stopListening = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       mediaRecorderRef.current.stop();
-      setStatus('analyzing'); // On passe en mode réflexion pendant la transcription
+      setStatus('analyzing');
     }
   };
 
@@ -55,7 +89,6 @@ function App() {
     formData.append("file", audioBlob, "audio.webm");
 
     try {
-      // 1. Envoyer l'audio au backend pour transcription (Groq Whisper)
       const transcribeRes = await fetch("http://127.0.0.1:8000/api/v1/transcribe", {
         method: "POST",
         body: formData,
@@ -64,8 +97,6 @@ function App() {
       
       const text = transcribeData.text;
       setQuery(text);
-
-      // 2. Une fois transcrit, on lance l'analyse IA
       await analyzeThreat(text);
 
     } catch (error) {
@@ -211,12 +242,15 @@ function App() {
             <ProCard title="Alertes Actives" icon={<ShieldAlert className="w-4 h-4 text-zinc-400" />}>
               <div>
                 <div className="flex items-baseline gap-2">
-                  <p className={`text-4xl font-bold tracking-tighter ${result?.is_attack ? 'text-red-500' : 'text-zinc-200'}`}>
-                    {result ? result.active_alerts : "--"}
+                  {/* On affiche le compteur WebSocket en priorité, sinon le compteur de la requête vocale */}
+                  <p className={`text-4xl font-bold tracking-tighter ${liveAlerts > 0 || result?.is_attack ? 'text-red-500' : 'text-zinc-200'}`}>
+                    {liveAlerts > 0 ? liveAlerts : (result ? result.active_alerts : "0")}
                   </p>
                   <span className="text-sm text-zinc-500">menace(s)</span>
                 </div>
-                <p className="text-xs text-zinc-500 font-mono mt-2">{result?.is_attack ? "Investigation requise" : "Système sain"}</p>
+                <p className="text-xs text-zinc-500 font-mono mt-2">
+                  {liveAlerts > 0 || result?.is_attack ? "Investigation requise" : "Système sain"}
+                </p>
               </div>
             </ProCard>
           }
@@ -248,13 +282,19 @@ function App() {
             </ProCard>
           }
           productivity={
-            <ProCard title="Flux Analysés" icon={<Activity className="w-4 h-4 text-zinc-400" />}>
-              <div>
-                <div className="flex items-baseline gap-2">
-                  <p className="text-4xl font-bold text-white tracking-tighter">{result ? "1" : "--"}</p>
-                  <span className="text-sm text-zinc-500">flux</span>
-                </div>
-                <p className="text-xs text-zinc-500 font-mono mt-2">Traité lors de cette requête</p>
+            // --- CARTE MODIFIÉE POUR LE FLUX EN DIRECT ---
+            <ProCard title="Flux en direct (Scapy)" icon={<Wifi className="w-4 h-4 text-blue-400" />}>
+              <div className="font-mono text-xs mt-2 space-y-2">
+                {liveFeed.length === 0 ? (
+                  <p className="text-zinc-600">En attente de paquets réseau...</p>
+                ) : (
+                  liveFeed.map((item, idx) => (
+                    <div key={idx} className={`flex justify-between border-b border-zinc-800/50 pb-1 ${item.is_attack ? 'text-red-400' : 'text-emerald-400'}`}>
+                      <span>Port: {item.port || "N/A"}</span>
+                      <span>{item.verdict}</span>
+                    </div>
+                  ))
+                )}
               </div>
             </ProCard>
           }
@@ -281,9 +321,6 @@ function App() {
                 )}
                 {status === 'listening' && <p className="text-red-400">$ [MIC] Enregistrement en cours...</p>}
                 {status === 'analyzing' && <p className="text-purple-400">$ Transcription et analyse en cours...</p>}
-                {status === 'result' && !result?.trace && (
-                  <p className="text-zinc-600">Les données de traçabilité ne sont pas disponibles.</p>
-                )}
                 {status !== 'idle' && status !== 'result' && (
                   <div className="flex items-center mt-2 text-zinc-500">
                     <span>$</span><span className="w-2 h-4 bg-zinc-500 ml-2 animate-pulse"></span>
