@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import predict
+from app.api.routes import predict, agent  # <-- IMPORT AJOUTÉ
+from app.api.routes import predict, agent, transcribe # <-- Ajoute transcribe
 
 app = FastAPI(
     title="NIDS CICIDS2017 API",
@@ -16,8 +17,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Inclure la route de prédiction
+# Inclure les routes
 app.include_router(predict.router, prefix="/api/v1", tags=["Prediction"])
+app.include_router(agent.router, prefix="/api/v1", tags=["Agent"])  # <-- ROUTE AJOUTÉE
 
 @app.get("/")
 def read_root():
@@ -26,3 +28,8 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "ok", "model_loaded": True}
+
+
+app.include_router(predict.router, prefix="/api/v1", tags=["Prediction"])
+app.include_router(agent.router, prefix="/api/v1", tags=["Agent"])
+app.include_router(transcribe.router, prefix="/api/v1", tags=["Transcription"]) # <-- Ajoute cette ligne
