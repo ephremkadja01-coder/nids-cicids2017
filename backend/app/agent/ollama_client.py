@@ -1,9 +1,14 @@
-from groq import Groq
+import os
 
-def call_ollama(prompt: str, model: str = "llama-3.3-70b-versatile") -> str:
+from groq import Groq
+from dotenv import load_dotenv
+
+load_dotenv()
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+def call_ollama(prompt: str, model: str = "openai/gpt-oss-120b") -> str:
     try:
-        # ⚠️ COLLE TA CLÉ API GROQ ICI (elle commence par gsk_...)
-        client = Groq(api_key="gsk_TA_CLE_API_ICI") 
+        client = Groq(api_key=GROQ_API_KEY)
         
         chat_completion = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],

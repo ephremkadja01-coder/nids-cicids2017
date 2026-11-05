@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { BentoGridShowcase } from "@/components/ui/bento-product-features";
 import { AILoader } from "@/components/ui/ai-loader";
 import { Shield, Activity, TerminalSquare, Mic, Send, Gauge, Zap, ShieldAlert, Square, Volume2 } from "lucide-react";
+import ReactMarkdown from 'react-markdown';
 
 function App() {
   const [status, setStatus] = useState<'idle' | 'listening' | 'analyzing' | 'result'>('idle');
@@ -192,7 +193,9 @@ function App() {
                             <Volume2 className="w-4 h-4" />
                           </button>
                         </div>
-                        <p className="mt-2">{result.agent_response}</p>
+                        <div className="mt-2 prose prose-invert prose-sm">
+                          <ReactMarkdown>{result.agent_response}</ReactMarkdown>
+                        </div>
                       </div>
                    </div>
                 ) : (
@@ -256,19 +259,36 @@ function App() {
             </ProCard>
           }
           shortcuts={
-            <ProCard title="journal_agent.log" icon={<TerminalSquare className="w-4 h-4 text-zinc-400" />} className="bg-[#0c0c0e] border-zinc-800">
-              <div className="font-mono text-sm overflow-y-auto max-h-[100px] mt-2">
-                {status === 'idle' && <p className="text-zinc-600">$ En attente de commande...</p>}
+            <ProCard title="Traçabilité (Preuves d'exécution)" icon={<TerminalSquare className="w-4 h-4 text-zinc-400" />} className="bg-[#0c0c0e] border-zinc-800">
+              <div className="font-mono text-xs overflow-y-auto max-h-[120px] mt-2 text-zinc-400 space-y-2">
+                {status === 'idle' && <p className="text-zinc-600">$ En attente...</p>}
+                {status === 'result' && result && (
+                  <>
+                    <div className="p-2 bg-zinc-900 rounded border border-zinc-800">
+                      <span className="text-blue-400">[1] Entrée Utilisateur :</span> <br />
+                      "{query}"
+                    </div>
+                    <div className="p-2 bg-zinc-900 rounded border border-zinc-800">
+                      <span className="text-purple-400">[2] Analyse XGBoost :</span> <br />
+                      Verdict : {result.trace?.ml_verdict} <br />
+                      Confiance : {result.trace?.ml_probability}
+                    </div>
+                    <div className="p-2 bg-zinc-900 rounded border border-zinc-800">
+                      <span className="text-emerald-400">[3] LLM utilisé :</span> <br />
+                      {result.trace?.model_used}
+                    </div>
+                  </>
+                )}
                 {status === 'listening' && <p className="text-red-400">$ [MIC] Enregistrement en cours...</p>}
                 {status === 'analyzing' && <p className="text-purple-400">$ Transcription et analyse en cours...</p>}
-                {status === 'result' && result && (
-                  <pre className="text-emerald-400 bg-emerald-500/5 p-2 rounded border border-emerald-500/10">
-                    {`$ Requête : "${query}"\n$ Statut : ${result.verdict}\n$ Confiance : ${(result.probability * 100).toFixed(2)}%`}
-                  </pre>
+                {status === 'result' && !result?.trace && (
+                  <p className="text-zinc-600">Les données de traçabilité ne sont pas disponibles.</p>
                 )}
-                <div className="flex items-center mt-2 text-zinc-500">
-                  <span>$</span><span className="w-2 h-4 bg-zinc-500 ml-2 animate-pulse"></span>
-                </div>
+                {status !== 'idle' && status !== 'result' && (
+                  <div className="flex items-center mt-2 text-zinc-500">
+                    <span>$</span><span className="w-2 h-4 bg-zinc-500 ml-2 animate-pulse"></span>
+                  </div>
+                )}
               </div>
             </ProCard>
           }

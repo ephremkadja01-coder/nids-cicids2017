@@ -19,6 +19,12 @@
 
 ---
 
+## 🖥️ Application Preview
+
+<p align="center">
+  <img src="doc/nids-soc-dashboard.png" alt="NIDS SOC dashboard showing the AI analysis and execution trace" width="100%">
+</p>
+
 ## 📑 Abstract
 
 Network Intrusion Detection Systems (NIDS) are critical components of modern Security Operations Centers (SOCs). However, traditional signature-based systems fail against zero-day attacks, and standard ML models often suffer from a lack of explainability and an inability to prioritize high-cost threats. 

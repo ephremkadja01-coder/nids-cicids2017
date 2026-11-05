@@ -30,7 +30,13 @@ def ask_agent(data: AgentRequest):
             "agent_response": agent_text.strip(),
             "inference_time_ms": round(inference_time_ms, 2),
             "risk_score": int(ml_result['probability'] * 100),
-            "active_alerts": 1 if ml_result['is_attack'] else 0
+            "active_alerts": 1 if ml_result['is_attack'] else 0,
+            "trace": {
+                "model_used": "openai/gpt-oss-120b (Groq)",
+                "input_data": data.features,
+                "ml_verdict": ml_result['verdict'],
+                "ml_probability": f"{ml_result['probability'] * 100:.4f}%"
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
