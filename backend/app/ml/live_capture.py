@@ -3,7 +3,7 @@ import requests
 import time
 
 # ⚠️ Remplace par le nom de ton interface réseau (ex: "eth0", "wlan0", "en0")
-INTERFACE = "wlan0" 
+INTERFACE = "wlp2s0"
 API_URL = "http://127.0.0.1:8000/api/v1/agent"
 
 def process_packet(packet):
