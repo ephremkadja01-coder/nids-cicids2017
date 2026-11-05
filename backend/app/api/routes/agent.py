@@ -16,8 +16,12 @@ def ask_agent(data: AgentRequest):
         ml_result = pipeline.predict(data.features)
         inference_time_ms = (time.time() - start_time) * 1000
         
-        # 2. Préparation du prompt pour Ollama
+        # 2. Préparation du prompt
         prompt = get_soc_prompt(data.prompt, ml_result['probability'], ml_result['verdict'])
+        
+        # ⚠️ LA MAGIE EST ICI : On force l'IA à prendre en compte les alertes du flux Scapy
+        if data.live_alerts > 0:
+            prompt += f"\n\nATTENTION CRITIQUE : Le système de capture réseau (Scapy) a détecté {data.live_alerts} alertes d'attaque en temps réel sur le dashboard. Même si le flux analysé ci-dessus est BENIGN, tu DOIS impérativement mentionner ces {data.live_alerts} alertes actives à l'utilisateur et lui recommander une investigation immédiate."
         
         # 3. Appel au LLM
         agent_text = call_ollama(prompt)
@@ -35,7 +39,8 @@ def ask_agent(data: AgentRequest):
                 "model_used": "openai/gpt-oss-120b (Groq)",
                 "input_data": data.features,
                 "ml_verdict": ml_result['verdict'],
-                "ml_probability": f"{ml_result['probability'] * 100:.4f}%"
+                "ml_probability": f"{ml_result['probability'] * 100:.4f}%",
+                "live_alerts_seen": data.live_alerts # <-- Ajouté pour la traçabilité
             }
         }
     except Exception as e:

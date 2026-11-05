@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from "react"; // <-- Ajout de useEffect
+import { useState, useRef, useEffect } from "react";
 import { BentoGridShowcase } from "@/components/ui/bento-product-features";
 import { AILoader } from "@/components/ui/ai-loader";
-import { Shield, Activity, TerminalSquare, Mic, Send, Gauge, Zap, ShieldAlert, Square, Volume2, Wifi } from "lucide-react"; // <-- Ajout de Wifi
+import { Shield, Activity, TerminalSquare, Mic, Send, Gauge, Zap, ShieldAlert, Square, Volume2, Wifi } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 
 function App() {
@@ -9,22 +9,26 @@ function App() {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<any>(null);
   
-  // --- NOUVEAUX ÉTATS POUR LE TEMPS RÉEL (WebSocket) ---
+  // --- ÉTATS WEBSOCKET ---
   const [liveFeed, setLiveFeed] = useState<any[]>([]);
   const [liveAlerts, setLiveAlerts] = useState(0);
+  const [wsConnected, setWsConnected] = useState(false); // <-- NOUVEL ÉTAT
 
-  // Refs pour l'enregistrement audio
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  // --- CONNEXION WEBSOCKET (Robuste) ---
+  // --- CONNEXION WEBSOCKET ---
   useEffect(() => {
-    let ws: WebSocket | null = null;
-    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
-    let isUnmounted = false;
+    let ws: WebSocket;
+    let reconnectTimeout: any;
 
     const connectWebSocket = () => {
       ws = new WebSocket("ws://127.0.0.1:8000/api/v1/ws/alerts");
+      
+      ws.onopen = () => {
+        console.log("✅ WebSocket connecté !");
+        setWsConnected(true); // On allume la pastille
+      };
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
@@ -35,20 +39,14 @@ function App() {
       };
 
       ws.onclose = () => {
-        if (!isUnmounted) {
-          console.log("WebSocket déconnecté. Reconnexion dans 3s...");
-          reconnectTimeout = setTimeout(connectWebSocket, 3000);
-        }
+        console.log("❌ WebSocket déconnecté. Reconnexion...");
+        setWsConnected(false); // On éteint la pastille
+        reconnectTimeout = setTimeout(connectWebSocket, 3000);
       };
     };
 
     connectWebSocket();
-
-    return () => {
-      isUnmounted = true;
-      if (ws) ws.close();
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
-    };
+    return () => { if (ws) ws.close(); clearTimeout(reconnectTimeout); };
   }, []);
 
   const startListening = async () => {
@@ -58,9 +56,7 @@ function App() {
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorderRef.current.onstop = async () => {
@@ -72,7 +68,7 @@ function App() {
       mediaRecorderRef.current.start();
       setStatus('listening');
     } catch (error) {
-      alert("Impossible d'accéder au micro. Vérifie les permissions.");
+      alert("Impossible d'accéder au micro.");
       setStatus('idle');
     }
   };
@@ -94,11 +90,8 @@ function App() {
         body: formData,
       });
       const transcribeData = await transcribeRes.json();
-      
-      const text = transcribeData.text;
-      setQuery(text);
-      await analyzeThreat(text);
-
+      setQuery(transcribeData.text);
+      await analyzeThreat(transcribeData.text);
     } catch (error) {
       alert("Erreur de transcription.");
       setStatus('idle');
@@ -116,16 +109,14 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: text,
-          features: { "Destination Port": 80, "Flow Duration": 100, "Total Fwd Packets": 5 }
+          features: { "Destination Port": 80, "Flow Duration": 100, "Total Fwd Packets": 5 },
+          live_alerts: liveAlerts // <-- On envoie le nombre d'alertes à l'IA
         })
       });
       const data = await response.json();
       setResult(data);
       setStatus('result');
-      
-      if (data.agent_response) {
-        speakResponse(data.agent_response);
-      }
+      if (data.agent_response) speakResponse(data.agent_response);
     } catch (error) {
       alert("Erreur : Le backend est-il allumé ?");
       setStatus('idle');
@@ -138,7 +129,6 @@ function App() {
         const voices = window.speechSynthesis.getVoices();
         const frenchVoices = voices.filter(v => v.lang.startsWith('fr'));
         let selectedVoice = frenchVoices.find(v => v.name.includes('Google') || v.name.includes('Natural')) || frenchVoices[0];
-
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'fr-FR';
         if (selectedVoice) utterance.voice = selectedVoice;
@@ -174,7 +164,14 @@ function App() {
               <Shield className="w-7 h-7 text-blue-500" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white tracking-tight">NIDS <span className="text-blue-500">SOC</span></h1>
+              <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3">
+                NIDS <span className="text-blue-500">SOC</span>
+                {/* PASTILLE DE CONNEXION */}
+                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono border ${wsConnected ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span>
+                  {wsConnected ? "LIVE" : "OFFLINE"}
+                </div>
+              </h1>
               <p className="text-sm text-zinc-400 mt-1">Détection d'Intrusion Réseau par l'IA</p>
             </div>
           </div>
@@ -242,7 +239,6 @@ function App() {
             <ProCard title="Alertes Actives" icon={<ShieldAlert className="w-4 h-4 text-zinc-400" />}>
               <div>
                 <div className="flex items-baseline gap-2">
-                  {/* On affiche le compteur WebSocket en priorité, sinon le compteur de la requête vocale */}
                   <p className={`text-4xl font-bold tracking-tighter ${liveAlerts > 0 || result?.is_attack ? 'text-red-500' : 'text-zinc-200'}`}>
                     {liveAlerts > 0 ? liveAlerts : (result ? result.active_alerts : "0")}
                   </p>
@@ -282,11 +278,10 @@ function App() {
             </ProCard>
           }
           productivity={
-            // --- CARTE MODIFIÉE POUR LE FLUX EN DIRECT ---
             <ProCard title="Flux en direct (Scapy)" icon={<Wifi className="w-4 h-4 text-blue-400" />}>
               <div className="font-mono text-xs mt-2 space-y-2">
                 {liveFeed.length === 0 ? (
-                  <p className="text-zinc-600">En attente de paquets réseau...</p>
+                  <p className="text-zinc-600">En attente de paquets...</p>
                 ) : (
                   liveFeed.map((item, idx) => (
                     <div key={idx} className={`flex justify-between border-b border-zinc-800/50 pb-1 ${item.is_attack ? 'text-red-400' : 'text-emerald-400'}`}>
@@ -314,7 +309,11 @@ function App() {
                       Confiance : {result.trace?.ml_probability}
                     </div>
                     <div className="p-2 bg-zinc-900 rounded border border-zinc-800">
-                      <span className="text-emerald-400">[3] LLM utilisé :</span> <br />
+                      <span className="text-orange-400">[3] Alertes Scapy vues :</span> <br />
+                      {result.trace?.live_alerts_seen} paquet(s) suspect(s)
+                    </div>
+                    <div className="p-2 bg-zinc-900 rounded border border-zinc-800">
+                      <span className="text-emerald-400">[4] LLM utilisé :</span> <br />
                       {result.trace?.model_used}
                     </div>
                   </>
