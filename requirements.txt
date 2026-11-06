@@ -1,6 +1,7 @@
 # Core Data & Math
 pandas>=2.3.0
 numpy>=2.0.0
+joblib>=1.4.0
 pyarrow>=26.0.0
 fastparquet>=2026.9.0
 
@@ -17,5 +18,13 @@ matplotlib>=3.9.1
 seaborn>=0.13.2
 jupyter>=1.0.0
 tqdm>=4.66.5
+
+# Backend API and integrations
 fastapi>=0.110.0
+python-dotenv>=1.0.1
+pydantic>=2.6.0
 uvicorn[standard]>=0.29.0
+groq>=0.11.0
+python-multipart>=0.0.20
+requests>=2.32.3
+scapy>=2.6.1

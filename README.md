@@ -1,205 +1,229 @@
 <div align="center">
 
-# 🛡️ NIDS CICIDS2017: An AI-Assisted Network Intrusion Detection System
+# NIDS CICIDS2017
 
-**A full-stack, research-oriented Cyber Data Science platform for SOC Analysts.**
+**A research prototype for network-flow classification and SOC analyst assistance.**
 
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
-[![React](https://img.shields.io/badge/React-18-20232A?style=flat-square&logo=react&logoColor=61DAFB)](https://reactjs.org)
+[![React](https://img.shields.io/badge/React-19-20232A?style=flat-square&logo=react&logoColor=61DAFB)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://typescriptlang.org)
 [![XGBoost](https://img.shields.io/badge/XGBoost-150458?style=flat-square&logo=xgboost&logoColor=white)](https://xgboost.readthedocs.io)
-[![SHAP](https://img.shields.io/badge/SHAP-Explainable_AI-FF6F00?style=flat-square)](https://shap.readthedocs.io)
-[![Ollama](https://img.shields.io/badge/Ollama-Local_LLM-000000?style=flat-square)](https://ollama.com)
-[![Docker](https://img.shields.io/badge/Docker-2CA5E0?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
-
-*Bridging the gap between Machine Learning, Network Security, and Local Generative AI.*
 
 </div>
 
 ---
 
-## 🖥️ Application Preview
+## What it does
+
+This project combines a FastAPI service, an XGBoost binary classifier, and a React dashboard. Analysts can submit a text question, record a French voice question, or upload a CICIDS-style CSV for a small random sample of rows to be classified. The dashboard also receives live predictions from an optional Scapy packet listener over a WebSocket.
+
+The AI assistant and speech transcription use the **Groq-hosted API**. They are not local Ollama services: prompts, flow summaries, and uploaded audio sent to these features are processed by Groq.
+
+## Dashboard
 
 <p align="center">
-  <img src="doc/nids-soc-dashboard.png" alt="NIDS SOC dashboard showing the AI analysis and execution trace" width="100%">
+  <img src="doc/nids-soc-dashboard.png" alt="NIDS SOC dashboard" width="100%">
 </p>
 
-## 📑 Abstract
+| State | Screenshot |
+|---|---|
+| Dashboard idle with live feed | ![Idle dashboard](doc/screenshots/dashboard-idle.png) |
+| Voice recording | ![Dashboard recording voice input](doc/screenshots/dashboard-listening.png) |
+| AI response with live-alert context | ![Dashboard with agent response](doc/screenshots/dashboard-agent-response.png) |
+| CSV analysis and execution trace | ![Dashboard after CSV analysis](doc/screenshots/dashboard-csv-analysis.png) |
 
-Network Intrusion Detection Systems (NIDS) are critical components of modern Security Operations Centers (SOCs). However, traditional signature-based systems fail against zero-day attacks, and standard ML models often suffer from a lack of explainability and an inability to prioritize high-cost threats. 
-
-This project proposes an end-to-end, locally hosted platform that combines **supervised learning** (XGBoost) and **unsupervised anomaly detection** (Isolation Forest) on the CICIDS2017 dataset. To assist SOC analysts, the system integrates **Explainable AI (SHAP)** for root-cause analysis and a **Local AI Agent (Ollama)** for natural language investigation and remediation scripting.
-
----
-
-## 🎯 1. Motivation & Scientific Context
-
-### 1.1 The Problem with Standard ML Evaluation
-In cybersecurity, **accuracy is a misleading metric**. A model that classifies 99% of traffic correctly but misses a slow brute-force attack is useless. 
-
-We frame this project under the paradigm of **Asymmetric Cost Evaluation**:
-*   **False Negative (FN):** Missing an attack (Data breach, catastrophic reputational damage).
-*   **False Positive (FP):** Blocking legitimate traffic (SOC fatigue, productivity loss).
-*   **Hypothesis:** We assume the cost of a False Negative is **10x** the cost of a False Positive. Our models are optimized and calibrated based on this asymmetric cost function.
-
-### 1.2 The Need for Human-in-the-Loop AI
-Deep Learning models are black boxes. In a SOC, an analyst will not block a network flow based solely on a "0.92" probability score. They need context. This project uses **SHAP** to explain *which specific features* (e.g., `SYN Flag Count`, `Flow Duration`) triggered the alert, and a **Local LLM** to translate these technical metrics into actionable threat intelligence.
-
----
-
-## 🏗️ 2. System Architecture
-
-The system is designed as a **Monorepo** with a decoupled Client-Server architecture, entirely containerized for reproducibility.
+## Architecture and implemented features
 
 ```mermaid
-graph TD
-    subgraph Data Layer [CRISP-DM ML Pipeline]
-        A[CICIDS2017 Raw PCAPs] -->|Data Prep| B(Feature Engineering)
-        B --> C{Modeling}
-        C -->|Supervised| D[XGBoost Classifier]
-        C -->|Unsupervised| E[Isolation Forest]
-    end
+flowchart LR
+    CSV[CICIDS2017 CSV] --> TRAIN[Training script]
+    TRAIN --> XGB[XGBoost artifact and metadata]
+    UI[React dashboard] -->|REST| API[FastAPI]
+    UI <-->|WebSocket alerts| API
+    SNIFFER[Optional Scapy TCP packet listener] -->|POST /predict-live| API
+    API --> XGB
+    API -->|Prompt| GROQ[Groq API]
+    UI -->|Recorded audio| WHISPER[Groq Whisper API]
+```
 
-    subgraph Backend [FastAPI Backend]
-        D --> F[Inference Engine]
-        E --> F
-        F --> G[SHAP Explainer]
-        F --> H[Ollama Agent Orchestrator]
-    end
+- **Classification:** the runtime pipeline loads `ml/models/xgb_nids.joblib` and `ml/models/metadata.json`, aligns incoming numeric features to the model's training feature list, fills missing features with zero, and returns a binary verdict and probability. The decision threshold is read from model metadata.
+- **Model training:** `ml/train_and_save_models.py` trains XGBoost and an Isolation Forest and writes both model files plus metadata. The current API prediction pipeline uses **XGBoost only**; the Isolation Forest artifact is not currently used for inference.
+- **Agent:** `POST /api/v1/agent` combines an XGBoost result with a French-language prompt and sends it to Groq (`openai/gpt-oss-120b`). A positive `live_alerts` value is added to the prompt as live-alert context.
+- **CSV:** `POST /api/v1/upload-csv` accepts a CSV, randomly samples up to five rows, converts numeric values, and classifies those rows. The dashboard displays the first sampled result and summarizes the sampled predictions; it does not analyze every row in the file.
+- **Voice:** the browser records audio, the backend sends it to Groq Whisper (`whisper-large-v3`, French), and the dashboard submits the transcription to the agent. Speech output uses the browser's speech synthesis.
+- **Live feed:** the optional Scapy listener sends a small set of packet-derived TCP features to the API. This is a packet-level approximation, not complete CICIDS flow reconstruction. The API pushes each prediction to connected dashboard clients over WebSocket.
+- **Parquet utility:** `ml/data/parquet.py` converts CICIDS CSV files to Parquet in bounded-memory batches.
 
-    subgraph Frontend [React UI]
-        I[Bento Grid Dashboard] -->|REST / SSE| F
-        I -->|Voice & Text Input| H
-    end
-    
-    style A fill:#1e293b,color:#fff
-    style I fill:#3b82f6,color:#fff
-    style F fill:#10b981,color:#fff
-    style H fill:#8b5cf6,color:#fff
+## API
 
+The FastAPI interactive documentation is available at `http://127.0.0.1:8000/docs` when the backend is running.
 
-    🛠️ 3. Technical Methodology & Stack
-3.1 Machine Learning & Data Engineering
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/` | Welcome message |
+| `GET` | `/health` | Basic health response |
+| `POST` | `/api/v1/predict` | Classify a feature dictionary |
+| `POST` | `/api/v1/agent` | Classify features and request a Groq-generated French response |
+| `POST` | `/api/v1/upload-csv` | Classify up to five randomly selected CSV rows |
+| `POST` | `/api/v1/transcribe` | Transcribe uploaded audio with Groq Whisper |
+| `POST` | `/api/v1/predict-live` | Classify packet-derived features and publish the result |
+| `WS` | `/api/v1/ws/alerts` | Receive live prediction messages |
+| `GET` | `/api/v1/trigger-fake-alert` | Send a test alert to connected WebSocket clients |
 
-    Dataset: CICIDS2017 (Canadian Institute for Cybersecurity).
+Example classification request:
 
-    Data Cleaning: Handling of NaN and inf (infinite) values inherent to network flow metrics (Flow Bytes/s).
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/predict \
+  -H "Content-Type: application/json" \
+  -d '{"features":{"Destination Port":80,"Flow Duration":100,"Total Fwd Packets":5}}'
+```
 
-    Class Imbalance: Mitigated via class_weight tuning and optimal threshold search.
+Upload a CSV:
 
-    Models:
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/upload-csv \
+  -F "file=@path/to/flows.csv"
+```
 
-        XGBoost: For known attacks (DDoS, PortScan).
+The agent request accepts `prompt`, `features`, and an optional `live_alerts` count (default `0`):
 
-        Isolation Forest: For zero-day anomaly detection (detecting what deviates from the "normal" baseline).
+```json
+{
+  "prompt": "Y a-t-il une menace ?",
+  "features": {
+    "Destination Port": 80,
+    "Flow Duration": 100,
+    "Total Fwd Packets": 5
+  },
+  "live_alerts": 0
+}
+```
 
-    Explainability: shap.TreeExplainer is used to compute exact Shapley values for the deployed models.
+## Local setup
 
-3.2 AI Agent (Local LLM)
+### Prerequisites
 
-    Engine: Ollama (Mistral 7B or Llama 3).
+- Python 3.12
+- Node.js 20 or newer and npm
+- CICIDS2017 CSV data for training, unless generated model artifacts are supplied separately
+- A Groq API key for the agent and voice transcription
+- Linux and `sudo` only if you want to run the optional Scapy packet listener
 
-    Role: The agent receives the SHAP explanations and the network flow metadata. It acts as a "Tier 1 SOC Analyst", explaining the threat in plain English and generating firewall rules (e.g., iptables or ufw commands).
+### 1. Install Python dependencies and prepare model artifacts
 
-    Privacy: 100% local inference. No telemetry or sensitive network data leaves the machine.
+The repository ignores `ml/data/raw/` and `ml/models/`; the dataset and trained model artifacts are not included in Git. Place CICIDS2017 CSV files under `ml/data/raw/`. The training script looks for files whose names contain `WorkingHours`, reads the first match it finds, and uses up to 100,000 rows.
 
-3.3 Software Engineering
-
-    Backend: FastAPI (async endpoints, Pydantic validation, Server-Sent Events for LLM streaming).
-
-    Frontend: React + Vite + TypeScript + Tailwind CSS (Bento Grid layout).
-
-    CI/CD: GitHub Actions (Pytest, ESLint).
-
-    Deployment: Docker Compose.
-
-
-    📂 4. Repository Structure
-
-    nids-cicids2017/
-├── ml/                     # Machine Learning Pipeline (CRISP-DM)
-│   ├── notebooks/          # 01_EDA, 02_DataPrep, 03_Modeling, 04_Evaluation
-│   ├── src/                # features.py, model.py, evaluation.py, explain.py
-│   ├── data/               # raw/ and processed/ (git-ignored)
-│   └── models/             # Serialized artifacts (.joblib) and metadata.json
-├── backend/                # FastAPI Application
-│   ├── app/
-│   │   ├── api/            # Routes (predict, explain, agent)
-│   │   ├── core/           # Settings and configurations
-│   │   ├── ml/             # Model loading & inference logic
-│   │   └── agent/          # Ollama integration & SOC prompts
-│   └── tests/              # Pytest
-├── frontend/               # React Application (Vite)
-│   ├── src/
-│   │   ├── components/     # BentoGrid, AlertTable, SHAPChart, AgentChat
-│   │   └── hooks/          # API fetching and SSE streaming
-│   └── package.json
-├── doc/                    # Threat Model, Evaluation Report, Incident Log
-├── docker-compose.yml      # Orchestrates Backend, Frontend, and Ollama
-└── README.md
-
-
-📊 5. Evaluation & Metrics
-
-The performance of the ML pipeline is documented in doc/EVALUATION.md. We prioritize the following metrics:
-
-    PR-AUC (Precision-Recall AUC): The most reliable metric for highly imbalanced datasets.
-
-    Recall (Attacks): We aim for >95% to capture as many threats as possible.
-
-    Asymmetric Cost: Minimizing (10 * FN) + (1 * FP).
-
-    Calibration: Isotonic calibration ensures that a predicted probability of 0.8 actually means an 80% chance of being an attack.
-
-🚀 6. Reproducibility & Installation
-Prerequisites
-
-    Docker & Docker Compose
-
-    Ollama (for the AI Agent)
-
-Quick Start (Docker)
-
-# 1. Clone the repository
-git clone https://github.com/ephremkadja01-coder/nids-cicids2017.git
-cd nids-cicids2017
-
-# 2. Pull the LLM model
-ollama pull mistral
-
-# 3. Launch the full stack
-docker-compose up --build
-
-Local Development (For researchers)
-
-# Backend
-cd backend
-python -m venv .venv
-source .venv/bin/activate
+```bash
+python3.12 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+python ml/train_and_save_models.py
+```
 
-# Frontend
+The root requirements file includes the full local stack; `backend/requirements.txt` lists the backend runtime dependencies used by its Docker image. Training creates `ml/models/xgb_nids.joblib`, `ml/models/iso_forest_nids.joblib`, and `ml/models/metadata.json`. The backend needs the XGBoost artifact and metadata to start.
+
+### 2. Configure Groq
+
+Create `backend/.env` and add your key:
+
+```dotenv
+GROQ_API_KEY=your_groq_api_key
+```
+
+Do not commit this file. The agent and transcription endpoints rely on this key.
+
+### 3. Start the backend and frontend
+
+Run the backend from the `backend/` directory:
+
+```bash
+cd backend
+../venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+In another terminal, install and start the frontend:
+
+```bash
 cd frontend
-npm install
+npm ci
 npm run dev
+```
 
-⚠️ 7. Threat Model & Limitations
+Open the Vite URL shown in the terminal (normally `http://localhost:5173`). The frontend currently calls the backend at `127.0.0.1:8000` directly.
 
-A rigorous system must define its boundaries:
+### 4. Optional live packet capture
 
-    Zero-Day Blindness: The XGBoost model is bound by the CICIDS2017 dataset. It cannot detect novel attack vectors. The Isolation Forest mitigates this, but requires human validation due to a higher false-positive rate.
+The listener is in `backend/app/ml/live_capture.py`. Before running it, update its hard-coded network interface (`wlp2s0`) to an interface on your machine. From the repository root:
 
-    Prompt Injection: The Ollama Agent processes network metadata (which could contain malicious strings). We implement strict prompt boundaries, but LLMs remain vulnerable to adversarial inputs.
+```bash
+sudo venv/bin/python -m backend.app.ml.live_capture
+```
 
-    Model Drift: Network traffic patterns change. Continuous retraining is mandatory for production use.
+Packet capture requires elevated privileges. Use it only on a network you are authorized to monitor.
 
-    Ethical Use: This tool is designed as a detection and assistance system (NIDS), not an automated prevention system (IPS). Automated remediation scripts generated by the LLM must be reviewed by a human.
+## Data preparation and training
 
-🤝 8. Contact & Acknowledgments
+The training script reads CICIDS2017 CSV files from `ml/data/raw/`, cleans column names and labels, removes rows with missing or infinite values, and maps `BENIGN` to class `0` and all other labels to class `1`. It trains an XGBoost classifier and an Isolation Forest on benign training rows, then writes model artifacts and metadata to the ignored `ml/models/` directory.
 
-Author: Ephrem Kadja — ML Engineer | Cyber Data Science
+Convert a directory of raw CSV files to Parquet with:
 
+```bash
+python -m ml.data.parquet \
+  --source ml/data/raw \
+  --destination ml/data/processed/parquet
+```
 
-Dataset sourced from the Canadian Institute for Cybersecurity (UNB).
+## Tests and checks
+
+The current automated tests are concentrated on CSV-to-Parquet conversion. The backend test files are placeholders at present.
+
+```bash
+python -m pytest ml/tests -q
+npm --prefix frontend run build
+npm --prefix frontend run lint
+```
+
+## Repository layout
+
+```text
+backend/
+  app/
+    agent/        Groq client and SOC prompt
+    api/routes/   FastAPI prediction, agent, live, transcription, and upload endpoints
+    ml/           Runtime XGBoost pipeline and Scapy listener
+    schemas/      Request and response models
+  tests/          Backend test placeholders
+frontend/
+  src/App.tsx     Dashboard and API/WebSocket integration
+ml/
+  data/           CICIDS data utilities (raw/ and generated data are ignored)
+  models/         Generated model artifacts (ignored)
+  notebooks/      Data understanding, preparation, modeling, and evaluation
+  tests/          Parquet conversion tests
+doc/              Project reports and dashboard screenshots
+```
+
+## Current limitations and security notes
+
+- The text agent currently submits a small hard-coded example feature set from the dashboard; it does not automatically analyze the live packet feed as a flow.
+- Live packet features are approximate and the capture interface and frontend API URLs are hard-coded for local development.
+- CSV upload processes at most five random rows, not the complete dataset. The backend also coerces numeric fields and relies on the model pipeline to fill any missing training features with zero.
+- Runtime predictions use XGBoost, even though the training script also creates an Isolation Forest artifact. SHAP explanations and automated remediation are not currently wired into the API.
+- Groq is an external service. Do not send sensitive production traffic or audio without considering your organization's data-handling requirements.
+- The API currently has no authentication, permissive CORS configuration, and a test-only fake-alert endpoint. Do not expose it directly to an untrusted network.
+- Docker files are present, but the current Compose configuration does not provide the ignored model artifacts or `GROQ_API_KEY` to the backend. The local setup above is the supported path until the container configuration is completed.
+
+## Project documentation
+
+- [Threat model](doc/THREAT_MODEL.md)
+- [Evaluation notes](doc/EVALUATION.md)
+- [Incident log](doc/INCIDENT_LOG.md)
+
+The files above are currently empty placeholders. See the [CICIDS2017 dataset](https://www.unb.ca/cic/datasets/ids-2017.html) for the source data.
+
+## Acknowledgments
+
+Dataset: Canadian Institute for Cybersecurity, University of New Brunswick.
+
+Author: Ephrem Kadja.
