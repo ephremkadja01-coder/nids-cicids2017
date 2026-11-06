@@ -23,7 +23,7 @@ The AI assistant and speech transcription use the **Groq-hosted API**. They are 
 ## Dashboard
 
 <p align="center">
-  <img src="doc/nids-soc-dashboard.png" alt="NIDS SOC dashboard" width="100%">
+  <img src="doc/screenshots/dashboard-agent-response.png" alt="Current NIDS SOC dashboard with live alerts, CSV upload, and AI analysis" width="100%">
 </p>
 
 | State | Screenshot |
