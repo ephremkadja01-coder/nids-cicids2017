@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import agent, live, predict, transcribe
+from app.api.routes import agent, live, predict, transcribe, upload
 
 app = FastAPI(
     title="NIDS CICIDS2017 API",
@@ -29,3 +29,4 @@ app.include_router(predict.router, prefix="/api/v1", tags=["Prediction"])
 app.include_router(agent.router, prefix="/api/v1", tags=["Agent"])
 app.include_router(transcribe.router, prefix="/api/v1", tags=["Transcription"])
 app.include_router(live.router, prefix="/api/v1", tags=["Live"])
+app.include_router(upload.router, prefix="/api/v1", tags=["Upload"])

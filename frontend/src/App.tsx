@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { BentoGridShowcase } from "@/components/ui/bento-product-features";
 import { AILoader } from "@/components/ui/ai-loader";
-import { Shield, Activity, TerminalSquare, Mic, Send, Gauge, Zap, ShieldAlert, Square, Volume2, Wifi } from "lucide-react";
+import { Shield, Activity, TerminalSquare, Mic, Send, Gauge, Zap, ShieldAlert, Square, Volume2, Wifi, Upload } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
 
 function App() {
@@ -153,6 +153,33 @@ function App() {
     </div>
   );
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setStatus('analyzing');
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/v1/upload-csv", { method: "POST", body: formData });
+      const data = await res.json();
+      
+      // On affiche le résultat du premier paquet analysé
+      if (data.data && data.data.length > 0) {
+        setResult({
+          ...data.data[0],
+          agent_response: `Analyse du fichier **${file.name}** terminée. J'ai trouvé ${data.data.filter((d:any) => d.is_attack).length} attaques parmi les 5 premiers flux.`,
+          trace: { ml_verdict: data.data[0].verdict, ml_probability: `${data.data[0].probability * 100}%`, model_used: "XGBoost CSV", live_alerts_seen: 0 }
+        });
+      }
+      setStatus('result');
+    } catch (error) {
+      alert("Erreur upload CSV");
+      setStatus('idle');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#09090b] text-zinc-100 p-8 font-sans">
       <div className="max-w-6xl mx-auto">
@@ -199,6 +226,13 @@ function App() {
               {status === 'listening' ? <Square className="w-4 h-4 fill-white" /> : <Mic className="w-4 h-4" />}
               {status === 'listening' ? "Arrêter" : "Vocal"}
             </button>
+
+            {/* BOUTON UPLOAD CSV */}
+            <label className="cursor-pointer px-4 py-2.5 rounded-lg flex items-center gap-2 text-sm font-medium bg-zinc-800 hover:bg-zinc-700 text-white transition-all">
+              <Upload className="w-4 h-4" />
+              <span className="hidden md:inline">CSV</span>
+              <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} />
+            </label>
           </div>
         </div>
 
