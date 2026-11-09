@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import agent, live, predict, transcribe, upload
+from app.ml.live_capture import run_sniffer_in_background  # <-- AJOUT DE L'IMPORT
 
 app = FastAPI(
     title="NIDS CICIDS2017 API",
@@ -15,6 +16,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- DÉMARRAGE AUTOMATIQUE DU SNIFFER ---
+@app.on_event("startup")
+def startup_event():
+    print("🚀 Démarrage de l'API NIDS...")
+    run_sniffer_in_background()  # <-- LANCE SCAPY EN ARRIÈRE-PLAN
+# ----------------------------------------
 
 @app.get("/")
 def read_root():

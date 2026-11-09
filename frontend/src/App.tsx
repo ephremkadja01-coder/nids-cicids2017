@@ -160,6 +160,10 @@ function App() {
     if (!text.trim()) return;
     setStatus('analyzing');
     setResult(null);
+
+    const featuresToSend = liveFeed.length > 0
+      ? { "Destination Port": liveFeed[0].port || 80 }
+      : { "Destination Port": 80, "Flow Duration": 100, "Total Fwd Packets": 5 };
     
     try {
       const response = await fetch("http://127.0.0.1:8000/api/v1/agent", {
@@ -167,7 +171,7 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: text,
-          features: { "Destination Port": 80, "Flow Duration": 100, "Total Fwd Packets": 5 },
+          features: featuresToSend,
           live_alerts: liveAlerts 
         })
       });

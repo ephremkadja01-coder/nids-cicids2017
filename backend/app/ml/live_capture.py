@@ -1,5 +1,6 @@
 from scapy.all import sniff, IP, TCP
 import requests
+import threading
 
 INTERFACE = "wlp2s0" # Ton interface Wi-Fi
 API_URL = "http://127.0.0.1:8000/api/v1/predict-live"
@@ -26,5 +27,12 @@ def process_packet(packet):
         except Exception:
             pass # On ignore les erreurs de timeout pour ne pas crasher le sniffer
 
-print(f"👀 Écoute du trafic sur {INTERFACE} et envoi à l'API...")
-sniff(iface=INTERFACE, prn=process_packet, store=False)
+def start_sniffer():
+    """Fonction d'écoute (tourne en boucle)"""
+    print(f"👀 [SCAPY] Écoute du trafic sur {INTERFACE} et envoi à l'API...")
+    sniff(iface=INTERFACE, prn=process_packet, store=False)
+
+def run_sniffer_in_background():
+    """Lance le sniffer dans un thread séparé pour ne pas bloquer FastAPI"""
+    thread = threading.Thread(target=start_sniffer, daemon=True)
+    thread.start()
