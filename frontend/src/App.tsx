@@ -56,7 +56,6 @@ function App() {
   }, { scope: containerRef });
 
   // --- ANIMATION 3 : Pulsation rouge sur alerte ---
-  // MODIFICATION ICI : Ajout de result?.active_alerts dans la condition et les dépendances
   useGSAP(() => {
     if ((liveAlerts > 0 || result?.active_alerts > 0) && alertCardRef.current) {
       gsap.fromTo(alertCardRef.current,
@@ -148,11 +147,23 @@ function App() {
         method: "POST",
         body: formData,
       });
+      
+      if (!transcribeRes.ok) throw new Error("Erreur serveur transcription");
+      
       const transcribeData = await transcribeRes.json();
-      setQuery(transcribeData.text);
-      await analyzeThreat(transcribeData.text);
+      
+      // ✅ CORRECTION 1 : On s'assure que le texte n'est pas undefined
+      const text = transcribeData.text || "";
+      setQuery(text);
+      
+      if (text.trim()) {
+        await analyzeThreat(text);
+      } else {
+        setStatus('idle');
+      }
     } catch (error) {
-      alert("Erreur de transcription.");
+      console.error("Erreur transcription:", error);
+      alert("Erreur de transcription. Vérifie le terminal backend.");
       setStatus('idle');
     }
   };
@@ -186,19 +197,43 @@ function App() {
     }
   };
 
+  // ✅ CORRECTION 2 : Meilleure gestion de la voix et nettoyage du texte
   const speakResponse = (text: string) => {
     if (!('speechSynthesis' in window) || !text.trim()) return;
 
-    const synthesis = window.speechSynthesis;
-    synthesis.cancel();
+    // 1. Nettoyer le texte (enlever le Markdown comme ** ou #)
+    const cleanText = text.replace(/[*#_]/g, '').replace(/\n/g, ' ');
 
-    const frenchVoices = synthesis.getVoices().filter(voice => voice.lang.startsWith('fr'));
-    const selectedVoice = frenchVoices.find(voice => /google|natural/i.test(voice.name)) || frenchVoices[0];
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = selectedVoice?.lang || 'fr-FR';
-    if (selectedVoice) utterance.voice = selectedVoice;
+    const synthesis = window.speechSynthesis;
+    synthesis.cancel(); // Annuler toute lecture en cours
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'fr-FR';
     utterance.rate = 1.0;
-    synthesis.speak(utterance);
+    utterance.pitch = 1.0;
+
+    // 2. Chercher la meilleure voix française disponible
+    const setVoiceAndSpeak = () => {
+      const voices = synthesis.getVoices();
+      const frenchVoices = voices.filter(voice => voice.lang.startsWith('fr'));
+      
+      // On privilégie les voix Google, Natural ou Microsoft
+      const bestVoice = frenchVoices.find(voice => 
+        /google|natural|microsoft/i.test(voice.name)
+      ) || frenchVoices[0];
+
+      if (bestVoice) {
+        utterance.voice = bestVoice;
+      }
+      synthesis.speak(utterance);
+    };
+
+    // Parfois, les voix mettent du temps à charger
+    if (synthesis.getVoices().length === 0) {
+      synthesis.onvoiceschanged = setVoiceAndSpeak;
+    } else {
+      setVoiceAndSpeak();
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -216,7 +251,6 @@ function App() {
     </div>
   );
 
-  // --- MODIFICATION DE L'UPLOAD CSV ---
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -233,19 +267,19 @@ function App() {
       if (data.data && data.data.length > 0) {
         const attacks = data.attacks_found;
         const total = data.total_analyzed;
-        const agentText = `Analyse du fichier **${file.name}** terminée.\n\nJ'ai analysé un échantillon aléatoire de **${total} flux**.\n\n⚠️ **${attacks} attaques** ont été détectées.\n\n${attacks > 0 ? "Une investigation immédiate est requise pour identifier la source de ces menaces." : "Le trafic semble sain."}`;
+        const agentText = `Analyse du fichier ${file.name} terminée. J'ai analysé un échantillon aléatoire de ${total} flux. Attention : ${attacks} attaques ont été détectées. ${attacks > 0 ? "Une investigation immédiate est requise pour identifier la source de ces menaces." : "Le trafic semble sain."}`;
 
         setResult({
-          is_attack: attacks > 0, // Passe au rouge s'il y a au moins une attaque
-          risk_score: attacks > 0 ? Math.min(100, Math.round((attacks / total) * 100 * 2)) : 0, // Score basé sur le ratio d'attaques
+          is_attack: attacks > 0,
+          risk_score: attacks > 0 ? Math.min(100, Math.round((attacks / total) * 100 * 2)) : 0,
           active_alerts: attacks,
           inference_time_ms: 0,
           agent_response: agentText,
-          trace: {
-            ml_verdict: attacks > 0 ? "ATTACK DETECTED" : "BENIGN",
-            ml_probability: `${attacks} attaques / ${total} flux`,
-            model_used: "XGBoost (Batch CSV)",
-            live_alerts_seen: attacks
+          trace: { 
+            ml_verdict: attacks > 0 ? "ATTACK DETECTED" : "BENIGN", 
+            ml_probability: `${attacks} attaques / ${total} flux`, 
+            model_used: "XGBoost (Batch CSV)", 
+            live_alerts_seen: attacks 
           }
         });
         speakResponse(agentText);
