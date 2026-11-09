@@ -56,14 +56,15 @@ function App() {
   }, { scope: containerRef });
 
   // --- ANIMATION 3 : Pulsation rouge sur alerte ---
+  // MODIFICATION ICI : Ajout de result?.active_alerts dans la condition et les dépendances
   useGSAP(() => {
-    if (liveAlerts > 0 && alertCardRef.current) {
+    if ((liveAlerts > 0 || result?.active_alerts > 0) && alertCardRef.current) {
       gsap.fromTo(alertCardRef.current,
         { boxShadow: "0 0 0 0 rgba(239, 68, 68, 0.7)" },
         { boxShadow: "0 0 0 20px rgba(239, 68, 68, 0)", duration: 1, ease: "power2.out" }
       );
     }
-  }, [liveAlerts]);
+  }, [liveAlerts, result]);
 
   // --- ANIMATION 4 : Flash bleu sur le flux Scapy ---
   useGSAP(() => {
@@ -186,18 +187,18 @@ function App() {
   };
 
   const speakResponse = (text: string) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.onvoiceschanged = () => {
-        const voices = window.speechSynthesis.getVoices();
-        const frenchVoices = voices.filter(v => v.lang.startsWith('fr'));
-        let selectedVoice = frenchVoices.find(v => v.name.includes('Google') || v.name.includes('Natural')) || frenchVoices[0];
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'fr-FR';
-        if (selectedVoice) utterance.voice = selectedVoice;
-        utterance.rate = 1.0;
-        window.speechSynthesis.speak(utterance);
-      };
-    }
+    if (!('speechSynthesis' in window) || !text.trim()) return;
+
+    const synthesis = window.speechSynthesis;
+    synthesis.cancel();
+
+    const frenchVoices = synthesis.getVoices().filter(voice => voice.lang.startsWith('fr'));
+    const selectedVoice = frenchVoices.find(voice => /google|natural/i.test(voice.name)) || frenchVoices[0];
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = selectedVoice?.lang || 'fr-FR';
+    if (selectedVoice) utterance.voice = selectedVoice;
+    utterance.rate = 1.0;
+    synthesis.speak(utterance);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -205,7 +206,6 @@ function App() {
     analyzeThreat(query);
   };
 
-  // AJOUT DE LA CLASSE .gsap-stagger ICI
   const ProCard = ({ title, icon, children, className = "" }: { title: string, icon: React.ReactNode, children: React.ReactNode, className?: string }) => (
     <div className={`gsap-stagger relative flex flex-col justify-between h-full p-6 bg-[#0c0c0e] border border-zinc-800/80 rounded-2xl overflow-hidden hover:border-zinc-700 transition-all duration-300 ${className}`}>
       <div className="flex items-center gap-2 mb-4">
@@ -216,10 +216,12 @@ function App() {
     </div>
   );
 
+  // --- MODIFICATION DE L'UPLOAD CSV ---
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
+    setQuery(`Analyse du fichier : ${file.name}`);
     setStatus('analyzing');
     const formData = new FormData();
     formData.append("file", file);
@@ -229,11 +231,24 @@ function App() {
       const data = await res.json();
       
       if (data.data && data.data.length > 0) {
+        const attacks = data.attacks_found;
+        const total = data.total_analyzed;
+        const agentText = `Analyse du fichier **${file.name}** terminée.\n\nJ'ai analysé un échantillon aléatoire de **${total} flux**.\n\n⚠️ **${attacks} attaques** ont été détectées.\n\n${attacks > 0 ? "Une investigation immédiate est requise pour identifier la source de ces menaces." : "Le trafic semble sain."}`;
+
         setResult({
-          ...data.data[0],
-          agent_response: `Analyse du fichier **${file.name}** terminée. J'ai trouvé ${data.data.filter((d:any) => d.is_attack).length} attaques parmi les 5 premiers flux.`,
-          trace: { ml_verdict: data.data[0].verdict, ml_probability: `${data.data[0].probability * 100}%`, model_used: "XGBoost CSV", live_alerts_seen: 0 }
+          is_attack: attacks > 0, // Passe au rouge s'il y a au moins une attaque
+          risk_score: attacks > 0 ? Math.min(100, Math.round((attacks / total) * 100 * 2)) : 0, // Score basé sur le ratio d'attaques
+          active_alerts: attacks,
+          inference_time_ms: 0,
+          agent_response: agentText,
+          trace: {
+            ml_verdict: attacks > 0 ? "ATTACK DETECTED" : "BENIGN",
+            ml_probability: `${attacks} attaques / ${total} flux`,
+            model_used: "XGBoost (Batch CSV)",
+            live_alerts_seen: attacks
+          }
         });
+        speakResponse(agentText);
       }
       setStatus('result');
     } catch (error) {
@@ -330,13 +345,11 @@ function App() {
             </ProCard>
           }
           trackers={
-            /* WRAPPER POUR L'ANIMATION 3 */
             <div ref={alertCardRef} className="h-full rounded-2xl">
               <ProCard title="Alertes Actives" icon={<ShieldAlert className="w-4 h-4 text-zinc-400" />}>
                 <div>
                   <div className="flex items-baseline gap-2">
                     <p className={`text-4xl font-bold tracking-tighter ${liveAlerts > 0 || result?.is_attack ? 'text-red-500' : 'text-zinc-200'}`}>
-                      {/* ANIMATION 2 ICI */}
                       <AnimatedNumber value={liveAlerts > 0 ? liveAlerts : (result ? result.active_alerts : 0)} decimals={0} />
                     </p>
                     <span className="text-sm text-zinc-500">menace(s)</span>
@@ -353,7 +366,6 @@ function App() {
               <div>
                 <div className="flex items-baseline gap-2">
                   <p className="text-4xl font-bold text-white tracking-tighter">
-                    {/* ANIMATION 2 ICI */}
                     {result && result.inference_time_ms ? <AnimatedNumber value={result.inference_time_ms} decimals={2} /> : "--"}
                   </p>
                   <span className="text-sm text-zinc-500">ms</span>
@@ -367,7 +379,6 @@ function App() {
               <div>
                 <div className="flex items-baseline gap-2">
                   <p className={`text-3xl font-bold tracking-tighter ${result?.is_attack ? 'text-orange-500' : 'text-emerald-500'}`}>
-                    {/* ANIMATION 2 ICI */}
                     {result ? <AnimatedNumber value={result.risk_score} decimals={0} /> : "--"}
                   </p>
                   <span className="text-sm text-zinc-500">/ 100</span>
@@ -380,7 +391,6 @@ function App() {
             </ProCard>
           }
           productivity={
-            /* WRAPPER POUR L'ANIMATION 4 */
             <div ref={liveFeedCardRef} className="h-full rounded-2xl">
               <ProCard title="Flux en direct (Scapy)" icon={<Wifi className="w-4 h-4 text-blue-400" />}>
                 <div className="font-mono text-xs mt-2 space-y-2">

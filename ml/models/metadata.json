@@ -80,6 +80,6 @@
         "Idle Min"
     ],
     "optimal_threshold_xgb": 0.08,
-    "training_date": "2026-11-03 22:04:51",
-    "version": "1.0.0"
+    "training_date": "2026-11-09 14:26:34",
+    "version": "2.0.0-all-attacks"
 }

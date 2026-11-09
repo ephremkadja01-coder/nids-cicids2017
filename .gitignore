@@ -9,4 +9,5 @@ ml/models/
 *.joblib
 *.parquet
 ml/data/raw/
+.env*.log
 .env

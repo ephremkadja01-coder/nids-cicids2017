@@ -11,16 +11,33 @@ async def upload_csv(file: UploadFile = File(...)):
         contents = await file.read()
         df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
         
+        # On supprime la colonne Label si elle existe (pour ne pas la passer au modèle)
+        if 'Label' in df.columns:
+            df = df.drop(columns=['Label'])
+        elif ' Label' in df.columns:
+            df = df.drop(columns=[' Label'])
+
         results = []
-        # On analyse 5 lignes aléatoires pour faire rapide
-        for _, row in df.sample(min(5, len(df))).iterrows():
-            features = row.to_dict()
-            # On nettoie les clés (souvent il y a des espaces dans les CSV)
-            features = {str(k).strip(): float(v) for k, v in features.items() if str(v).replace('.','').isdigit()}
+        attack_count = 0
+        
+        # On prend 100 lignes au hasard
+        sample_size = min(100, len(df))
+        sample_df = df.sample(n=sample_size, random_state=42)
+        
+        for _, row in sample_df.iterrows():
+            # On convertit tout en float proprement
+            features = {str(k).strip(): float(v) for k, v in row.items()}
             
             res = pipeline.predict(features)
             results.append(res)
-            
-        return {"status": "success", "data": results}
+            if res["is_attack"]:
+                attack_count += 1
+                
+        return {
+            "status": "success",
+            "total_analyzed": sample_size,
+            "attacks_found": attack_count,
+            "data": results
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
