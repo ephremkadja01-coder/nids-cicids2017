@@ -1,8 +1,33 @@
 import { useState, useRef, useEffect } from "react";
+import gsap from "gsap";
+import { useGSAP } from "@gsap/react";
 import { BentoGridShowcase } from "@/components/ui/bento-product-features";
 import { AILoader } from "@/components/ui/ai-loader";
 import { Shield, Activity, TerminalSquare, Mic, Send, Gauge, Zap, ShieldAlert, Square, Volume2, Wifi, Upload } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
+
+gsap.registerPlugin(useGSAP);
+
+// --- ANIMATION 2 : Composant Compteur Animé ---
+const AnimatedNumber = ({ value, decimals = 0 }: { value: number | string, decimals?: number }) => {
+  const ref = useRef<HTMLSpanElement>(null);
+  
+  useGSAP(() => {
+    if (!ref.current || typeof value !== 'number') return;
+    const obj = { val: 0 };
+    gsap.to(obj, {
+      val: value,
+      duration: 1.5,
+      ease: "power3.out",
+      onUpdate: () => {
+        if (ref.current) ref.current.textContent = obj.val.toFixed(decimals);
+      }
+    });
+  }, [value]);
+
+  if (typeof value !== 'number') return <span>{value}</span>;
+  return <span ref={ref}>0</span>;
+};
 
 function App() {
   const [status, setStatus] = useState<'idle' | 'listening' | 'analyzing' | 'result'>('idle');
@@ -12,10 +37,43 @@ function App() {
   // --- ÉTATS WEBSOCKET ---
   const [liveFeed, setLiveFeed] = useState<any[]>([]);
   const [liveAlerts, setLiveAlerts] = useState(0);
-  const [wsConnected, setWsConnected] = useState(false); // <-- NOUVEL ÉTAT
+  const [wsConnected, setWsConnected] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  // --- REFS POUR ANIMATIONS 3 & 4 ---
+  const alertCardRef = useRef<HTMLDivElement>(null);
+  const liveFeedCardRef = useRef<HTMLDivElement>(null);
+
+  // --- ANIMATION 1 : Stagger des cartes (Apparition en cascade) ---
+  useGSAP(() => {
+    gsap.from(".dashboard-header", { opacity: 0, y: 18, duration: 0.7, ease: "power2.out" });
+    gsap.from(".gsap-stagger", {
+      y: 30, opacity: 0, duration: 0.8, stagger: 0.1, ease: "power3.out", delay: 0.2
+    });
+  }, { scope: containerRef });
+
+  // --- ANIMATION 3 : Pulsation rouge sur alerte ---
+  useGSAP(() => {
+    if (liveAlerts > 0 && alertCardRef.current) {
+      gsap.fromTo(alertCardRef.current,
+        { boxShadow: "0 0 0 0 rgba(239, 68, 68, 0.7)" },
+        { boxShadow: "0 0 0 20px rgba(239, 68, 68, 0)", duration: 1, ease: "power2.out" }
+      );
+    }
+  }, [liveAlerts]);
+
+  // --- ANIMATION 4 : Flash bleu sur le flux Scapy ---
+  useGSAP(() => {
+    if (liveFeed.length > 0 && liveFeedCardRef.current) {
+      gsap.fromTo(liveFeedCardRef.current,
+        { backgroundColor: "rgba(59, 130, 246, 0.2)" },
+        { backgroundColor: "transparent", duration: 0.4, ease: "power1.out" }
+      );
+    }
+  }, [liveFeed]);
 
   // --- CONNEXION WEBSOCKET ---
   useEffect(() => {
@@ -27,7 +85,7 @@ function App() {
       
       ws.onopen = () => {
         console.log("✅ WebSocket connecté !");
-        setWsConnected(true); // On allume la pastille
+        setWsConnected(true);
       };
 
       ws.onmessage = (event) => {
@@ -40,7 +98,7 @@ function App() {
 
       ws.onclose = () => {
         console.log("❌ WebSocket déconnecté. Reconnexion...");
-        setWsConnected(false); // On éteint la pastille
+        setWsConnected(false);
         reconnectTimeout = setTimeout(connectWebSocket, 3000);
       };
     };
@@ -110,7 +168,7 @@ function App() {
         body: JSON.stringify({
           prompt: text,
           features: { "Destination Port": 80, "Flow Duration": 100, "Total Fwd Packets": 5 },
-          live_alerts: liveAlerts // <-- On envoie le nombre d'alertes à l'IA
+          live_alerts: liveAlerts 
         })
       });
       const data = await response.json();
@@ -143,8 +201,9 @@ function App() {
     analyzeThreat(query);
   };
 
+  // AJOUT DE LA CLASSE .gsap-stagger ICI
   const ProCard = ({ title, icon, children, className = "" }: { title: string, icon: React.ReactNode, children: React.ReactNode, className?: string }) => (
-    <div className={`relative flex flex-col justify-between h-full p-6 bg-[#0c0c0e] border border-zinc-800/80 rounded-2xl overflow-hidden hover:border-zinc-700 transition-all duration-300 ${className}`}>
+    <div className={`gsap-stagger relative flex flex-col justify-between h-full p-6 bg-[#0c0c0e] border border-zinc-800/80 rounded-2xl overflow-hidden hover:border-zinc-700 transition-all duration-300 ${className}`}>
       <div className="flex items-center gap-2 mb-4">
         {icon}
         <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">{title}</h3>
@@ -165,7 +224,6 @@ function App() {
       const res = await fetch("http://127.0.0.1:8000/api/v1/upload-csv", { method: "POST", body: formData });
       const data = await res.json();
       
-      // On affiche le résultat du premier paquet analysé
       if (data.data && data.data.length > 0) {
         setResult({
           ...data.data[0],
@@ -181,11 +239,11 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-zinc-100 p-8 font-sans">
+    <div ref={containerRef} className="min-h-screen bg-[#09090b] text-zinc-100 p-8 font-sans">
       <div className="max-w-6xl mx-auto">
         
         {/* Header */}
-        <div className="mb-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="dashboard-header mb-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-4">
             <div className="p-2.5 bg-blue-500/10 rounded-xl border border-blue-500/20">
               <Shield className="w-7 h-7 text-blue-500" />
@@ -193,7 +251,6 @@ function App() {
             <div>
               <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3">
                 NIDS <span className="text-blue-500">SOC</span>
-                {/* PASTILLE DE CONNEXION */}
                 <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono border ${wsConnected ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span>
                   {wsConnected ? "LIVE" : "OFFLINE"}
@@ -227,7 +284,6 @@ function App() {
               {status === 'listening' ? "Arrêter" : "Vocal"}
             </button>
 
-            {/* BOUTON UPLOAD CSV */}
             <label className="cursor-pointer px-4 py-2.5 rounded-lg flex items-center gap-2 text-sm font-medium bg-zinc-800 hover:bg-zinc-700 text-white transition-all">
               <Upload className="w-4 h-4" />
               <span className="hidden md:inline">CSV</span>
@@ -270,25 +326,32 @@ function App() {
             </ProCard>
           }
           trackers={
-            <ProCard title="Alertes Actives" icon={<ShieldAlert className="w-4 h-4 text-zinc-400" />}>
-              <div>
-                <div className="flex items-baseline gap-2">
-                  <p className={`text-4xl font-bold tracking-tighter ${liveAlerts > 0 || result?.is_attack ? 'text-red-500' : 'text-zinc-200'}`}>
-                    {liveAlerts > 0 ? liveAlerts : (result ? result.active_alerts : "0")}
+            /* WRAPPER POUR L'ANIMATION 3 */
+            <div ref={alertCardRef} className="h-full rounded-2xl">
+              <ProCard title="Alertes Actives" icon={<ShieldAlert className="w-4 h-4 text-zinc-400" />}>
+                <div>
+                  <div className="flex items-baseline gap-2">
+                    <p className={`text-4xl font-bold tracking-tighter ${liveAlerts > 0 || result?.is_attack ? 'text-red-500' : 'text-zinc-200'}`}>
+                      {/* ANIMATION 2 ICI */}
+                      <AnimatedNumber value={liveAlerts > 0 ? liveAlerts : (result ? result.active_alerts : 0)} decimals={0} />
+                    </p>
+                    <span className="text-sm text-zinc-500">menace(s)</span>
+                  </div>
+                  <p className="text-xs text-zinc-500 font-mono mt-2">
+                    {liveAlerts > 0 || result?.is_attack ? "Investigation requise" : "Système sain"}
                   </p>
-                  <span className="text-sm text-zinc-500">menace(s)</span>
                 </div>
-                <p className="text-xs text-zinc-500 font-mono mt-2">
-                  {liveAlerts > 0 || result?.is_attack ? "Investigation requise" : "Système sain"}
-                </p>
-              </div>
-            </ProCard>
+              </ProCard>
+            </div>
           }
           statistic={
             <ProCard title="Temps d'Inférence" icon={<Zap className="w-4 h-4 text-zinc-400" />}>
               <div>
                 <div className="flex items-baseline gap-2">
-                  <p className="text-4xl font-bold text-white tracking-tighter">{result ? result.inference_time_ms : "--"}</p>
+                  <p className="text-4xl font-bold text-white tracking-tighter">
+                    {/* ANIMATION 2 ICI */}
+                    {result && result.inference_time_ms ? <AnimatedNumber value={result.inference_time_ms} decimals={2} /> : "--"}
+                  </p>
                   <span className="text-sm text-zinc-500">ms</span>
                 </div>
                 <p className="text-xs text-zinc-500 font-mono mt-2">Modèle XGBoost</p>
@@ -300,7 +363,8 @@ function App() {
               <div>
                 <div className="flex items-baseline gap-2">
                   <p className={`text-3xl font-bold tracking-tighter ${result?.is_attack ? 'text-orange-500' : 'text-emerald-500'}`}>
-                    {result ? result.risk_score : "--"}
+                    {/* ANIMATION 2 ICI */}
+                    {result ? <AnimatedNumber value={result.risk_score} decimals={0} /> : "--"}
                   </p>
                   <span className="text-sm text-zinc-500">/ 100</span>
                 </div>
@@ -312,20 +376,23 @@ function App() {
             </ProCard>
           }
           productivity={
-            <ProCard title="Flux en direct (Scapy)" icon={<Wifi className="w-4 h-4 text-blue-400" />}>
-              <div className="font-mono text-xs mt-2 space-y-2">
-                {liveFeed.length === 0 ? (
-                  <p className="text-zinc-600">En attente de paquets...</p>
-                ) : (
-                  liveFeed.map((item, idx) => (
-                    <div key={idx} className={`flex justify-between border-b border-zinc-800/50 pb-1 ${item.is_attack ? 'text-red-400' : 'text-emerald-400'}`}>
-                      <span>Port: {item.port || "N/A"}</span>
-                      <span>{item.verdict}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </ProCard>
+            /* WRAPPER POUR L'ANIMATION 4 */
+            <div ref={liveFeedCardRef} className="h-full rounded-2xl">
+              <ProCard title="Flux en direct (Scapy)" icon={<Wifi className="w-4 h-4 text-blue-400" />}>
+                <div className="font-mono text-xs mt-2 space-y-2">
+                  {liveFeed.length === 0 ? (
+                    <p className="text-zinc-600">En attente de paquets...</p>
+                  ) : (
+                    liveFeed.map((item, idx) => (
+                      <div key={idx} className={`flex justify-between border-b border-zinc-800/50 pb-1 ${item.is_attack ? 'text-red-400' : 'text-emerald-400'}`}>
+                        <span>Port: {item.port || "N/A"}</span>
+                        <span>{item.verdict}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ProCard>
+            </div>
           }
           shortcuts={
             <ProCard title="Traçabilité (Preuves d'exécution)" icon={<TerminalSquare className="w-4 h-4 text-zinc-400" />} className="bg-[#0c0c0e] border-zinc-800">
